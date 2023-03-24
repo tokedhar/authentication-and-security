@@ -5,7 +5,10 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const ejs = require('ejs');
 const mongoose = require('mongoose');
-const encrypt = require('mongoose-encryption');
+const bcrypt = require('bcrypt');
+const saltRounds = 10;
+// const md5 = require('md5');
+// const encrypt = require('mongoose-encryption');
 
 const app = express();
 
@@ -24,10 +27,10 @@ const userSchema = new mongoose.Schema ({
     password: String
 });
 
-userSchema.plugin(encrypt, {
-    secret: process.env.SECRET,
-    encryptedFields: ['password']
-});
+// userSchema.plugin(encrypt, {
+//     secret: process.env.SECRET,
+//     encryptedFields: ['password']
+// });
 const User = new mongoose.model('User', userSchema);
 
 
@@ -40,27 +43,44 @@ app.get('/register', (req, res) => res.render('register'));
 
 /*** POSTS ***/
 
-app.post('/register', (req, res) => {
-    const newUser = new User({
-        email: req.body.username,
-        password: req.body.password
-    });
-    newUser.save()
-        .then(() => res.render('secrets'))
-        .catch((e) => console.log(e)) 
+app.post ('/register', (req, res) => {
+    bcrypt.hash (req.body.password, saltRounds)
+    .then ((hash) => {
+        return new User ({
+            email: req.body.username,
+            password: hash
+            // password: md5(req.body.password)
+        });
+    })
+    .then ((newUser) => {
+        newUser.save()
+            .then(() => res.render('secrets'))
+            .catch((e) => console.log(e))             
+    })
+    .catch((e) => console.log(e))
+
 });
 
 app.post('/login', (req, res) => {
     const username = req.body.username;
     const password = req.body.password;
+    // const password = md5(req.body.password);
 
     User.findOne({email: username})
-        .then ((foundUser) => {
-            if (foundUser.password === password) {
-                res.render('secrets');
-            }
-        })
-        .catch ((e) => console.log(e))
+    .then ((foundUser) => {
+        // if (foundUser.password === password) {
+        if (foundUser) {
+            bcrypt.compare(password, foundUser.password)
+            .then ((result) => {
+                if (result === true) {
+                    res.render('secrets');
+                } else {
+                    console.log('Wrong password!');
+                }
+            })
+        }
+    })
+    .catch ((e) => console.log(e))
 });
 
 
