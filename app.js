@@ -1,4 +1,10 @@
-//jshint esversion:6
+/* Date: 26 Mar 2023
+ * Starting files are from appbrewery
+ * Note 1: Google Strategy part is updated referring to the StackOverflow post
+ *  from flamekaizer; URL: https://stackoverflow.com/questions/75687623/cannot-read-properties-of-undefined-reading-es6
+ *  
+ */
+
 
 require('dotenv').config();
 const express = require('express');
@@ -8,6 +14,8 @@ const mongoose = require('mongoose');
 const session = require('express-session');
 const passport = require('passport');
 const passportLocalMongoose = require('passport-local-mongoose');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const findOrCreate = require('mongoose-findorcreate');
 
 // const bcrypt = require('bcrypt');
 // const saltRounds = 10;
@@ -38,10 +46,13 @@ const db = mongoose.connection;
 
 const userSchema = new mongoose.Schema ({
     email: String,
-    password: String
+    password: String,
+    googleId: String
 });
 
 userSchema.plugin(passportLocalMongoose);
+userSchema.plugin(findOrCreate);
+
 // userSchema.plugin(encrypt, {
 //     secret: process.env.SECRET,
 //     encryptedFields: ['password']
@@ -51,14 +62,62 @@ const User = new mongoose.model('User', userSchema);
 
 // The below three lines are actually simplified by passport-local-mongoose:
 passport.use(User.createStrategy());
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+passport.serializeUser((user, done) => {
+    done(null, user.id);
+});
+passport.deserializeUser((id, done) => {
+    User.findById(id)
+        .then((user) => {
+            done(null, user);
+        })
+        .catch((err) => {
+            return done(err);
+        });
+});
 
+passport.use(   // Ref Note 1
+    new GoogleStrategy(
+        {
+            clientID: process.env.CLIENT_ID,
+            clientSecret: process.env.CLIENT_SECRET,
+            callbackURL: "http://localhost:8080/auth/google/secrets",
+            userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+        },
+        async function (accessToken, refreshToken, profile, done) {
+            // Done is a callback function
+            try {
+                let user = await User.findOne({ googleId: profile.id });
+                if (!user) {
+                    // Create new user:
+                    const username =
+                        Array.isArray(profile.emails) &&
+                        profile.emails.length > 0
+                            ? profile.emails[0].value.split("@")[0]
+                            : "";
+                    const newUser = new User({
+                        username: profile.displayName,
+                        googleId: profile.id,
+                    });
+                    user = await newUser.save();
+                }
+                console.log(user);
+                return done(null, user);
+            } catch (err) {
+                return done(err);
+            }
+        }
+    )
+);
 
-
-/*** GETS ***/
+/*** GET ROUTES ***/
 
 app.get('/', (req, res) => res.render('home'));
+app.get('/auth/google', passport.authenticate('google', { scope: ['profile'] }));
+app.get('/auth/google/secrets',
+    passport.authenticate('google', { failureRedirect: '/login' }),
+    function(req, res) {
+        res.redirect('/secrets');
+    }); // Successful authentication, redirect to 'secrets' page:
 app.get('/login', (req, res) => res.render('login'));
 app.get('/register', (req, res) => res.render('register'));
 app.get('/secrets', (req, res) => {
@@ -75,7 +134,7 @@ app.get('/logout', (req, res) => {
 });
 
 
-/*** POSTS ***/
+/*** POST ROUTES ***/
 
 app.post('/register', (req, res) => {
     User.register({username: req.body.username}, req.body.password)
@@ -152,7 +211,7 @@ app.post('/login', (req, res) => {
 
 
 // Listen to the App Engine-specified port, or 8080 otherwise
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 8080 || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}...`);
 });
