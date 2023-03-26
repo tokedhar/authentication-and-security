@@ -47,7 +47,8 @@ const db = mongoose.connection;
 const userSchema = new mongoose.Schema ({
     email: String,
     password: String,
-    googleId: String
+    googleId: String,
+    secret: String
 });
 
 userSchema.plugin(passportLocalMongoose);
@@ -121,8 +122,17 @@ app.get('/auth/google/secrets',
 app.get('/login', (req, res) => res.render('login'));
 app.get('/register', (req, res) => res.render('register'));
 app.get('/secrets', (req, res) => {
+    User.find({ 'secret': {$ne: null}}).then((foundUsers, err) => {
+        if (foundUsers) {
+            res.render('secrets', {usersWithSecrets: foundUsers});
+        } else {
+            console.error(err);
+        }
+    });
+});
+app.get('/submit', (req, res) => {
     if (req.isAuthenticated()) {
-        res.render('secrets');
+        res.render('submit');
     } else {
         res.redirect('/login');
     }
@@ -159,6 +169,18 @@ app.post('/login', (req, res) => {
             passport.authenticate('local') (req, res, () => {
                 res.redirect('/secrets');  // Places session cookie
             });
+        }
+    });
+});
+
+app.post("/submit", (req, res) => {
+    // Passport saves the logged in user details in the request variable:
+    User.findById(req.user.id).then((foundUser, err) => {
+        if (foundUser) {
+            foundUser.secret = req.body.secret;
+            foundUser.save().then(() => res.redirect("/secrets"));
+        } else {
+            console.error(err);
         }
     });
 });
